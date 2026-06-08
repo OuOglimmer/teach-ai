@@ -3,24 +3,30 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
-import type { Exam, Homework } from '@/types'
+import type { Exam, Homework, Test } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const exams = ref<Exam[]>([])
+const tests = ref<Test[]>([])
 const homeworkList = ref<Homework[]>([])
 const studentGrades = ref<{ exam_title: string; score: number; total: number; date: string }[]>([])
 
 onMounted(async () => {
   if (auth.isTeacher || auth.isAdmin) {
     exams.value = (await api.getExams()).filter(e => e.status !== 'draft')
+    tests.value = await api.getTests()
     homeworkList.value = (await api.getHomework()).filter(h => h.status !== 'draft')
   }
   if (auth.isStudent && auth.user) {
     studentGrades.value = await api.getStudentGrades(auth.user.id)
   }
 })
+
+function goToExams() {
+  router.push('/exams')
+}
 
 const pendingCount = computed(() => {
   if (auth.isTeacher || auth.isAdmin) {
@@ -69,11 +75,11 @@ const today = new Date().toLocaleDateString('zh-CN', { weekday: 'long', year: 'n
           <span class="text-xs text-gray-400">{{ auth.isStudent ? '分' : '个' }}</span>
         </div>
       </div>
-      <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div @click="goToExams" class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-shadow">
         <p class="text-sm text-gray-500">{{ auth.isStudent ? 'AI答疑' : '总考试数' }}</p>
         <div class="flex items-baseline gap-2 mt-1">
-          <span class="text-2xl font-bold text-indigo-600">{{ auth.isStudent ? '5' : exams.length }}</span>
-          <span class="text-xs text-green-500">+{{ auth.isStudent ? 2 : 1 }}</span>
+          <span class="text-2xl font-bold text-indigo-600">{{ auth.isStudent ? '5' : tests.length }}</span>
+          <span class="text-xs text-green-500">场考试</span>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
-import type { Exam, Homework, Class, ExamResult, HomeworkSubmission } from '@/types'
+import type { Exam, Homework, Class, ExamResult, HomeworkSubmission, Test } from '@/types'
 
 const auth = useAuthStore()
 const activeTab = ref<'exams' | 'homework' | 'analysis'>('exams')
@@ -39,10 +39,21 @@ async function loadData() {
 async function createExam() {
   if (!newExam.value.title || !newExam.value.class_id) return
   loading.value = true
-  await api.createExam({
+  const exam = await api.createExam({
     ...newExam.value,
     teacher_id: auth.user?.id || '',
     questions: [],
+    status: 'draft'
+  })
+  await api.createTest({
+    title: newExam.value.title,
+    exam_type: 'standard',
+    duration: newExam.value.duration,
+    total_score: newExam.value.total_score,
+    start_time: newExam.value.start_time,
+    end_time: newExam.value.end_time,
+    class_id: newExam.value.class_id,
+    teacher_id: auth.user?.id || '',
     status: 'draft'
   })
   await loadData()

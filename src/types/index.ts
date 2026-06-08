@@ -178,3 +178,18 @@ export interface HomeworkSubmission {
   graded: boolean
   submitted_at: string
 }
+
+export interface Test {
+  id: string
+  title: string
+  exam_type: 'standard' | 'quiz' | 'midterm' | 'final' | 'mock'
+  duration: number
+  total_score: number
+  start_time: string
+  end_time: string
+  class_id: string
+  teacher_id: string
+  status: 'draft' | 'published' | 'grading' | 'done'
+  created_at: string
+  class?: { name: string }
+}

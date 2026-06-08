@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import type {
   Profile, AiConversation, LearningSuggestion, PracticeExercise,
   Exam, ExamResult, Resource, Class, ClassStats,
-  RegistrationApproval, Homework, HomeworkSubmission
+  RegistrationApproval, Homework, HomeworkSubmission, Test
 } from '@/types'
 
 export const api = {
@@ -285,6 +285,30 @@ export const api = {
   async getClassGrades(classId: string): Promise<{ student_id: string; nickname: string; scores: { exam: string; score: number }[]; avg: number }[]> {
     const { data } = await supabase.rpc('get_class_grades', { p_class_id: classId })
     return data || []
+  },
+
+  // ========== Tests ==========
+  async getTests(classId?: string): Promise<Test[]> {
+    let query = supabase.from('tests').select('*, class:classes(name)')
+    if (classId) query = query.eq('class_id', classId)
+    const { data } = await query.order('created_at', { ascending: false })
+    return data || []
+  },
+
+  async createTest(test: Partial<Test>) {
+    const { data, error } = await supabase.from('tests').insert(test).select().single()
+    if (error) throw error
+    return data
+  },
+
+  async updateTest(id: string, updates: Partial<Test>) {
+    const { data, error } = await supabase.from('tests').update(updates).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  },
+
+  async deleteTest(id: string) {
+    await supabase.from('tests').delete().eq('id', id)
   },
 
   // ========== Vault Secrets ==========

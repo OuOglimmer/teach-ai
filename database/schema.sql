@@ -123,7 +123,22 @@ CREATE TABLE public.exam_results (
   UNIQUE(exam_id, student_id)
 );
 
--- 12. 教学资源
+-- 12. 考试场次记录表 (test)
+CREATE TABLE public.tests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  exam_type TEXT NOT NULL DEFAULT 'standard' CHECK (exam_type IN ('standard', 'quiz', 'midterm', 'final', 'mock')),
+  duration INTEGER DEFAULT 120,
+  total_score INTEGER DEFAULT 100,
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  class_id UUID REFERENCES public.classes(id) ON DELETE CASCADE,
+  teacher_id UUID REFERENCES public.profiles(id),
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'grading', 'done')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 13. 教学资源
 CREATE TABLE public.resources (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
@@ -190,6 +205,7 @@ ALTER TABLE public.practice_exercises ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exam_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_stats ENABLE ROW LEVEL SECURITY;
 

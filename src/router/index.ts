@@ -103,6 +103,12 @@ const router = createRouter({
           name: 'Usage',
           component: () => import('@/pages/usage/Index.vue'),
           meta: { title: 'API用量统计', icon: 'chart', roles: ['student', 'teacher', 'admin'] }
+        },
+        {
+          path: 'exams',
+          name: 'Exams',
+          component: () => import('@/pages/exams/Index.vue'),
+          meta: { title: '全部考试信息', icon: 'clipboard', roles: ['teacher', 'admin'] }
         }
       ]
     }

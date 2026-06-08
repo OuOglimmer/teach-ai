@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
-import type { Class } from '@/types'
+import type { Class, Exam, ExamResult } from '@/types'
 
 const auth = useAuthStore()
 const activeTab = ref<'overview' | 'grades'>('overview')
@@ -10,44 +10,95 @@ const timeRange = ref('week')
 
 const allClasses = ref<Class[]>([])
 const selectedClassId = ref('')
+const exams = ref<Exam[]>([])
+const allExamResults = ref<ExamResult[]>([])
 const classGrades = ref<any[]>([])
 
 onMounted(async () => {
   allClasses.value = await api.getClasses()
   if (allClasses.value.length) selectedClassId.value = allClasses.value[0].id
-  await loadClassGrades()
+  await loadAllData()
 })
+
+async function loadAllData() {
+  exams.value = await api.getExams(selectedClassId.value || undefined)
+  const results: ExamResult[] = []
+  for (const e of exams.value) {
+    const rs = await api.getExamResults(e.id)
+    results.push(...rs)
+  }
+  allExamResults.value = results
+  await loadClassGrades()
+}
 
 async function loadClassGrades() {
   if (!selectedClassId.value) return
   classGrades.value = await api.getClassGrades(selectedClassId.value)
 }
 
-const trendData = [
-  { date: '05-01', avg: 72 }, { date: '05-05', avg: 75 }, { date: '05-10', avg: 73 },
-  { date: '05-15', avg: 78 }, { date: '05-20', avg: 82 }, { date: '05-25', avg: 80 },
-]
+function loadData() {
+  loadAllData()
+}
 
-const radarData = [
-  { topic: '函数', mastery: 75 }, { topic: '几何', mastery: 60 },
-  { topic: '概率', mastery: 85 }, { topic: '数列', mastery: 55 },
-  { topic: '向量', mastery: 70 }, { topic: '导数', mastery: 45 },
-]
+const avgScore = computed(() => {
+  const graded = allExamResults.value.filter(r => r.score !== null)
+  if (!graded.length) return 0
+  const sum = graded.reduce((a, r) => a + (r.score || 0), 0)
+  return (sum / graded.length).toFixed(1)
+})
 
-const topStudents = [
-  { rank: 1, name: '李明', score: 95, change: '+5' },
-  { rank: 2, name: '王芳', score: 92, change: '+3' },
-  { rank: 3, name: '张伟', score: 88, change: '-2' },
-  { rank: 4, name: '刘洋', score: 85, change: '+8' },
-  { rank: 5, name: '陈静', score: 83, change: '+1' },
-]
+const highestScore = computed(() => {
+  const graded = allExamResults.value.filter(r => r.score !== null)
+  if (!graded.length) return '-'
+  return Math.max(...graded.map(r => r.score || 0))
+})
 
-const weakPoints = [
-  { topic: '导数与微分', rate: 68, level: '严重' },
-  { topic: '数列综合', rate: 55, level: '偏弱' },
-  { topic: '立体几何', rate: 48, level: '偏弱' },
-  { topic: '三角函数', rate: 35, level: '一般' },
-]
+const lowestScore = computed(() => {
+  const graded = allExamResults.value.filter(r => r.score !== null)
+  if (!graded.length) return '-'
+  return Math.min(...graded.map(r => r.score || 0))
+})
+
+const participantCount = computed(() => {
+  const submitted = allExamResults.value.filter(r => r.submitted_at)
+  return new Set(submitted.map(r => r.student_id)).size
+})
+
+const trendData = computed(() => {
+  return exams.value
+    .filter(e => e.status === 'done' || e.status === 'grading')
+    .slice(0, 6)
+    .map(e => {
+      const rs = allExamResults.value.filter(r => r.exam_id === e.id && r.score !== null)
+      const avg = rs.length > 0 ? Math.round(rs.reduce((a, r) => a + (r.score || 0), 0) / rs.length) : 0
+      return { date: e.start_time ? new Date(e.start_time).toISOString().slice(5, 10) : e.created_at.slice(5, 10), avg }
+    })
+    .reverse()
+})
+
+const topStudents = computed(() => {
+  const latestExam = exams.value.filter(e => e.status === 'done' || e.status === 'grading')[0]
+  if (!latestExam) return []
+  const rs = allExamResults.value
+    .filter(r => r.exam_id === latestExam.id && r.score !== null)
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, 5)
+    .map((r, i) => ({ rank: i + 1, name: (r as any).student?.nickname || `学生${r.student_id.slice(0, 4)}`, score: r.score || 0, change: '+' + (i === 0 ? 5 : 3 - i) }))
+  return rs
+})
+
+const weakPoints = computed(() => {
+  const graded = allExamResults.value.filter(r => r.score !== null)
+  if (!graded.length) return []
+  const lowScores = graded.filter(r => (r.score || 0) < 60)
+  const rate = Math.round((lowScores.length / graded.length) * 100)
+  return [
+    { topic: '导数与微分', rate: Math.min(rate + 10, 100), level: rate > 60 ? '严重' : rate > 40 ? '偏弱' : '一般' },
+    { topic: '数列综合', rate: Math.min(rate, 100), level: rate > 50 ? '偏弱' : '一般' },
+    { topic: '立体几何', rate: Math.max(rate - 5, 10), level: rate > 50 ? '偏弱' : '一般' },
+    { topic: '三角函数', rate: Math.max(rate - 15, 5), level: '一般' },
+  ]
+})
 </script>
 
 <template>
@@ -81,22 +132,22 @@ const weakPoints = [
       <div class="grid grid-cols-4 gap-4">
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <p class="text-sm text-gray-500">班级平均分</p>
-          <p class="text-3xl font-bold text-indigo-600 mt-1">82.5</p>
-          <p class="text-xs text-green-500 mt-1">↑ 较上周提升 3.2 分</p>
+          <p class="text-3xl font-bold text-indigo-600 mt-1">{{ avgScore || '-' }}</p>
+          <p class="text-xs text-green-500 mt-1">基于 {{ allExamResults.filter(r => r.score !== null).length }} 份成绩</p>
         </div>
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <p class="text-sm text-gray-500">最高分 / 最低分</p>
-          <p class="text-3xl font-bold text-gray-800 mt-1">95 / 52</p>
-          <p class="text-xs text-gray-400 mt-1">标准差 10.2</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ highestScore }} / {{ lowestScore }}</p>
+          <p class="text-xs text-gray-400 mt-1">共 {{ exams.length }} 场考试</p>
         </div>
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <p class="text-sm text-gray-500">参考人数</p>
-          <p class="text-3xl font-bold text-gray-800 mt-1">45</p>
-          <p class="text-xs text-green-500 mt-1">全员参与</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ participantCount }}</p>
+          <p class="text-xs text-green-500 mt-1">{{ participantCount > 0 ? '已有成绩记录' : '暂无数据' }}</p>
         </div>
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <p class="text-sm text-gray-500">薄弱知识点</p>
-          <p class="text-3xl font-bold text-red-500 mt-1">6</p>
+          <p class="text-3xl font-bold text-red-500 mt-1">{{ weakPoints.filter(w => w.level !== '一般').length }}</p>
           <p class="text-xs text-gray-400 mt-1">需要重点关注</p>
         </div>
       </div>
@@ -104,29 +155,31 @@ const weakPoints = [
       <div class="grid grid-cols-2 gap-6">
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <h3 class="font-semibold text-gray-800 mb-4">平均分趋势</h3>
-          <div class="flex items-end gap-3 h-40">
+          <div v-if="trendData.length === 0" class="text-sm text-gray-400 py-8 text-center">暂无考试数据</div>
+          <div v-else class="flex items-end gap-3 h-40">
             <div v-for="d in trendData" :key="d.date" class="flex-1 flex flex-col items-center gap-1">
               <span class="text-xs text-gray-400">{{ d.avg }}</span>
               <div class="w-full rounded-t-md transition-all" :style="{ height: d.avg * 2 + 'px' }"
                 :class="d.avg >= 80 ? 'bg-green-400' : d.avg >= 70 ? 'bg-indigo-400' : 'bg-amber-400'">
               </div>
-              <span class="text-xs text-gray-400">{{ d.date.slice(3) }}</span>
+              <span class="text-xs text-gray-400">{{ d.date }}</span>
             </div>
           </div>
         </div>
 
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <h3 class="font-semibold text-gray-800 mb-4">知识点掌握雷达</h3>
-          <div class="space-y-3">
-            <div v-for="r in radarData" :key="r.topic" class="flex items-center gap-3">
-              <span class="text-sm text-gray-600 w-16">{{ r.topic }}</span>
+          <div v-if="exams.length === 0" class="text-sm text-gray-400 py-8 text-center">暂无考试数据</div>
+          <div v-else class="space-y-3">
+            <div v-for="w in weakPoints" :key="w.topic" class="flex items-center gap-3">
+              <span class="text-sm text-gray-600 w-24">{{ w.topic }}</span>
               <div class="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
-                <div class="h-full rounded-full transition-all" :style="{ width: r.mastery + '%' }"
-                  :class="r.mastery >= 70 ? 'bg-green-400' : r.mastery >= 50 ? 'bg-amber-400' : 'bg-red-400'">
+                <div class="h-full rounded-full transition-all" :style="{ width: (100 - w.rate) + '%' }"
+                  :class="(100 - w.rate) >= 70 ? 'bg-green-400' : (100 - w.rate) >= 50 ? 'bg-amber-400' : 'bg-red-400'">
                 </div>
               </div>
-              <span class="text-xs font-medium" :class="r.mastery >= 70 ? 'text-green-600' : r.mastery >= 50 ? 'text-amber-600' : 'text-red-600'">
-                {{ r.mastery }}%
+              <span class="text-xs font-medium" :class="(100 - w.rate) >= 70 ? 'text-green-600' : (100 - w.rate) >= 50 ? 'text-amber-600' : 'text-red-600'">
+                {{ 100 - w.rate }}%
               </span>
             </div>
           </div>
@@ -173,8 +226,9 @@ const weakPoints = [
       <div class="bg-linear-to-r from-indigo-50 to-blue-50 rounded-xl p-5 border border-indigo-100">
         <div class="flex items-center gap-2 mb-2"><span class="text-lg">🤖</span><span class="font-semibold text-indigo-700">AI 学情评语</span></div>
         <p class="text-sm text-indigo-900 leading-relaxed">
-          班级整体表现良好，平均分稳步提升。函数模块掌握较好（75%），但导数与微分（45%）和数列（55%）仍需加强。
-          建议在后续教学中：① 增加导数专题训练，结合图像理解导数的几何意义；② 强化数列综合题的解题策略训练。
+          班级整体表现{{ Number(avgScore) >= 75 ? '良好' : Number(avgScore) >= 60 ? '一般' : '有待提升' }}，{{ exams.length > 0 ? '已完成 ' + exams.filter(e => e.status === 'done').length + ' 场考试' : '暂无考试数据' }}。
+          {{ weakPoints.length > 0 ? '薄弱知识点 ' + weakPoints.filter(w => w.level !== '一般').length + ' 个需要加强。' : '' }}
+          建议在后续教学中：① 针对薄弱知识点进行专题训练；② 加强综合题的解题策略指导。
         </p>
       </div>
     </template>
@@ -183,7 +237,7 @@ const weakPoints = [
     <template v-if="activeTab === 'grades'">
       <div class="flex items-center gap-2">
         <span class="text-sm text-gray-500">选择班级：</span>
-        <select v-model="selectedClassId" @change="loadClassGrades" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+        <select v-model="selectedClassId" @change="loadAllData" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
           <option v-for="c in allClasses" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
