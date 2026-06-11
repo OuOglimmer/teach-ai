@@ -4,31 +4,31 @@ import type { Profile, AiConversation, LearningSuggestion, PracticeExercise } fr
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-const isDemo = supabaseUrl.includes('placeholder')
+const isDemo = import.meta.env.VITE_USE_REAL_SUPABASE !== 'true'
 
 // ========== Mock Data ==========
-const demoUser: Profile = {
-  id: 'demo-user-id',
-  email: 'admin@test.com',
-  nickname: '管理员',
-  avatar_url: null,
-  role: 'admin',
-  school: 'AI启航教育',
-  created_at: new Date().toISOString(),
+const demoAccounts: Record<string, Profile> = {
+  'admin@test.com':  { id: 'admin-id', email: 'admin@test.com', nickname: '管理员', avatar_url: null, role: 'admin', school: 'AI启航教育', created_at: new Date().toISOString() },
+  'teacher@test.com': { id: 'teacher-id', email: 'teacher@test.com', nickname: '张老师', avatar_url: null, role: 'teacher', school: 'AI启航教育', created_at: new Date().toISOString() },
+  'student@test.com': { id: 'student-id', email: 'student@test.com', nickname: '李明', avatar_url: null, role: 'student', school: 'AI启航教育', created_at: new Date().toISOString() },
+}
+
+function getDemoUser(email: string): Profile {
+  return demoAccounts[email] || demoAccounts['admin@test.com']
 }
 
 // ========== Persistent Mock Stores ==========
 const stores: Record<string, any[]> = {
   ai_conversations: [
-    { id: '1', user_id: 'demo-user-id', title: '二次函数求解问题', messages: [{ role: 'user', content: '如何求解二次函数的最值？', created_at: new Date().toISOString() }, { role: 'assistant', content: '对于二次函数 f(x)=ax²+bx+c，当 a>0 时开口向上，顶点处取最小值...', created_at: new Date().toISOString() }], status: 'resolved', subject: '数学', created_at: '2026-05-20T10:00:00Z', updated_at: '2026-05-20T10:05:00Z' },
-    { id: '2', user_id: 'demo-user-id', title: '英语时态疑问', messages: [{ role: 'user', content: '现在完成时和过去式的区别？', created_at: new Date().toISOString() }], status: 'active', subject: '英语', created_at: '2026-05-21T14:00:00Z', updated_at: '2026-05-21T14:00:00Z' },
+    { id: '1', user_id: 'admin-id', title: '二次函数求解问题', messages: [{ role: 'user', content: '如何求解二次函数的最值？', created_at: new Date().toISOString() }, { role: 'assistant', content: '对于二次函数 f(x)=ax²+bx+c，当 a>0 时开口向上，顶点处取最小值...', created_at: new Date().toISOString() }], status: 'resolved', subject: '数学', created_at: '2026-05-20T10:00:00Z', updated_at: '2026-05-20T10:05:00Z' },
+    { id: '2', user_id: 'admin-id', title: '英语时态疑问', messages: [{ role: 'user', content: '现在完成时和过去式的区别？', created_at: new Date().toISOString() }], status: 'active', subject: '英语', created_at: '2026-05-21T14:00:00Z', updated_at: '2026-05-21T14:00:00Z' },
   ],
   classes: [
-    { id: 'c1', name: '九年级(1)班', grade: '九年级', created_by: demoUser.id, created_at: new Date().toISOString() },
+    { id: 'c1', name: '九年级(1)班', grade: '九年级', created_by: 'admin-id', created_at: new Date().toISOString() },
   ],
   exams: [
-    { id: 'e1', class_id: 'c1', teacher_id: demoUser.id, title: '期中数学考试', duration: 120, total_score: 150, questions: [], start_time: new Date(Date.now() - 86400000 * 7).toISOString(), end_time: new Date(Date.now() - 86400000 * 7 + 7200000).toISOString(), status: 'done', created_at: new Date(Date.now() - 86400000 * 14).toISOString() },
-    { id: 'e2', class_id: 'c1', teacher_id: demoUser.id, title: '单元测验：二次函数', duration: 60, total_score: 100, questions: [], start_time: new Date(Date.now() - 86400000 * 2).toISOString(), end_time: new Date(Date.now() - 86400000 * 2 + 3600000).toISOString(), status: 'grading', created_at: new Date(Date.now() - 86400000 * 5).toISOString() },
+    { id: 'e1', class_id: 'c1', teacher_id: 'admin-id', title: '期中数学考试', duration: 120, total_score: 150, questions: [], start_time: new Date(Date.now() - 86400000 * 7).toISOString(), end_time: new Date(Date.now() - 86400000 * 7 + 7200000).toISOString(), status: 'done', created_at: new Date(Date.now() - 86400000 * 14).toISOString() },
+    { id: 'e2', class_id: 'c1', teacher_id: 'admin-id', title: '单元测验：二次函数', duration: 60, total_score: 100, questions: [], start_time: new Date(Date.now() - 86400000 * 2).toISOString(), end_time: new Date(Date.now() - 86400000 * 2 + 3600000).toISOString(), status: 'grading', created_at: new Date(Date.now() - 86400000 * 5).toISOString() },
   ],
   exam_results: [
     { id: 'er1', exam_id: 'e1', student_id: 's1', score: 135, answers: {}, graded: true, submitted_at: new Date(Date.now() - 86400000 * 7).toISOString() },
@@ -36,11 +36,11 @@ const stores: Record<string, any[]> = {
     { id: 'er3', exam_id: 'e2', student_id: 's1', score: null, answers: {}, graded: false, submitted_at: new Date(Date.now() - 86400000 * 2).toISOString() },
   ],
   tests: [
-    { id: 't1', class_id: 'c1', teacher_id: demoUser.id, title: '期中数学考试', exam_type: 'midterm', duration: 120, total_score: 150, start_time: new Date(Date.now() - 86400000 * 7).toISOString(), end_time: new Date(Date.now() - 86400000 * 7 + 7200000).toISOString(), status: 'done', created_at: new Date(Date.now() - 86400000 * 14).toISOString() },
-    { id: 't2', class_id: 'c1', teacher_id: demoUser.id, title: '单元测验：二次函数', exam_type: 'quiz', duration: 60, total_score: 100, start_time: new Date(Date.now() - 86400000 * 2).toISOString(), end_time: new Date(Date.now() - 86400000 * 2 + 3600000).toISOString(), status: 'grading', created_at: new Date(Date.now() - 86400000 * 5).toISOString() },
+    { id: 't1', class_id: 'c1', teacher_id: 'admin-id', title: '期中数学考试', exam_type: 'midterm', duration: 120, total_score: 150, start_time: new Date(Date.now() - 86400000 * 7).toISOString(), end_time: new Date(Date.now() - 86400000 * 7 + 7200000).toISOString(), status: 'done', created_at: new Date(Date.now() - 86400000 * 14).toISOString() },
+    { id: 't2', class_id: 'c1', teacher_id: 'admin-id', title: '单元测验：二次函数', exam_type: 'quiz', duration: 60, total_score: 100, start_time: new Date(Date.now() - 86400000 * 2).toISOString(), end_time: new Date(Date.now() - 86400000 * 2 + 3600000).toISOString(), status: 'grading', created_at: new Date(Date.now() - 86400000 * 5).toISOString() },
   ],
   homework: [
-    { id: 'hw1', class_id: 'c1', teacher_id: demoUser.id, title: '二次函数练习题', description: '完成课本P45-P48练习题', due_date: new Date(Date.now() + 86400000 * 3).toISOString(), total_score: 100, status: 'published', created_at: new Date().toISOString() },
+    { id: 'hw1', class_id: 'c1', teacher_id: 'admin-id', title: '二次函数练习题', description: '完成课本P45-P48练习题', due_date: new Date(Date.now() + 86400000 * 3).toISOString(), total_score: 100, status: 'published', created_at: new Date().toISOString() },
   ],
   homework_submissions: [
     { id: 's1', homework_id: 'hw1', student_id: 's1', content: '已完成所有题目', score: null, graded: false, submitted_at: new Date().toISOString() },
@@ -53,7 +53,7 @@ const stores: Record<string, any[]> = {
     { id: 'r1', email: 'teacher@test.com', nickname: '张老师', role: 'teacher', school: 'AI启航教育', status: 'pending', created_at: new Date(Date.now() - 86400000).toISOString() },
     { id: 'r2', email: 'admin2@test.com', nickname: '李管理', role: 'admin', school: 'AI启航教育', status: 'pending', created_at: new Date(Date.now() - 172800000).toISOString() },
   ],
-  profiles: [demoUser],
+  profiles: Object.values(demoAccounts),
   resources: [],
   class_stats: [],
   learning_suggestions: [],
@@ -108,20 +108,33 @@ function createMockClient() {
   return {
     auth: {
       signInWithPassword: async ({ email, password }: any) => {
-        currentUser = { id: demoUser.id, email, user_metadata: { role: demoUser.role } }
+        const profile = getDemoUser(email)
+        currentUser = { id: profile.id, email, user_metadata: { role: profile.role } }
+        try { localStorage.setItem('demo_session', JSON.stringify(currentUser)) } catch {}
         listeners.forEach(fn => fn('SIGNED_IN', { user: currentUser }))
         return { data: { user: currentUser, session: { user: currentUser } }, error: null }
       },
       signUp: async ({ email, password, options }: any) => {
-        currentUser = { id: demoUser.id, email, user_metadata: { role: options?.data?.role || 'student' } }
+        const profile = getDemoUser(email)
+        currentUser = { id: profile.id, email, user_metadata: { role: options?.data?.role || profile.role } }
+        try { localStorage.setItem('demo_session', JSON.stringify(currentUser)) } catch {}
         return { data: { user: currentUser, session: { user: currentUser } }, error: null }
       },
       signOut: async () => {
         currentUser = null
+        try { localStorage.removeItem('demo_session') } catch {}
         listeners.forEach(fn => fn('SIGNED_OUT', null))
         return { error: null }
       },
-      getSession: async () => ({ data: { session: currentUser ? { user: currentUser } : null }, error: null }),
+      getSession: async () => {
+        if (!currentUser) {
+          try {
+            const cached = localStorage.getItem('demo_session')
+            if (cached) currentUser = JSON.parse(cached)
+          } catch {}
+        }
+        return { data: { session: currentUser ? { user: currentUser } : null }, error: null }
+      },
       onAuthStateChange: (callback: (event: string, session: any) => void) => {
         listeners.push(callback)
         return { data: { subscription: { unsubscribe: () => { } } } }
@@ -148,7 +161,12 @@ function createMockClient() {
           return queryMethods
         },
         single: async () => {
-          const rows = queryTable(table, filters)
+          let rows = queryTable(table, filters)
+          if (rows.length === 0 && table === 'profiles' && filters.some(f => f.col === 'id')) {
+            const idFilter = filters.find(f => f.col === 'id')
+            const fallback = Object.values(demoAccounts).find(p => p.id === idFilter?.val)
+            if (fallback) rows = [fallback]
+          }
           return { data: rows.length > 0 ? rows[0] : null, error: rows.length === 0 ? { message: 'Not found' } : null }
         },
         then: (resolve: any) => {
@@ -203,7 +221,7 @@ function createMockClient() {
       return builder
     },
     rpc: (fn: string, params: any) => {
-      if (fn === 'vault_get_secret') return Promise.resolve({ data: import.meta.env.VITE_DEEPSEEK_API_KEY || null, error: null })
+      if (fn === 'get_deepseek_api_key') return Promise.resolve({ data: import.meta.env.VITE_DEEPSEEK_API_KEY || null, error: null })
       if (fn === 'vault_upsert_secret') return Promise.resolve({ data: null, error: null })
       if (fn === 'get_class_grades') {
         const exams = getStore('exams')

@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { streamChat, hasApiKey, clearKeyCache, type DeepSeekMessage } from '@/lib/deepseek'
+import {
+  streamChat,
+  clearKeyCache,
+  clearRuntimeApiKey,
+  getApiKeySource,
+  setRuntimeApiKey,
+  type ApiKeySource,
+  type DeepSeekMessage
+} from '@/lib/deepseek'
 import { api } from '@/lib/api'
+import type { AiConversation } from '@/types'
 
 const auth = useAuthStore()
 
@@ -22,9 +31,6 @@ interface LocalConversation {
   updatedAt: number
 }
 
-const STORAGE_KEY = 'ai_qa_history'
-const MAX_HISTORY = 50
-
 const conversations = ref<LocalConversation[]>([])
 const currentConvId = ref<string | null>(null)
 const input = ref('')
@@ -37,8 +43,17 @@ const messagesEndRef = ref<HTMLDivElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachedFiles = ref<{ name: string; content: string; type: string }[]>([])
 const hasKey = ref(false)
-const keySource = ref<'vault' | 'env' | 'none'>('none')
+const keySource = ref<ApiKeySource>('none')
 const saveToVault = ref(false)
+const loadingHistory = ref(false)
+const persistedConversationIds = new Set<string>()
+
+const MAX_UPLOAD_SIZE = 1024 * 1024
+const TEXT_FILE_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.csv', '.json', '.xml',
+  '.html', '.css', '.js', '.ts', '.vue', '.py', '.java',
+  '.c', '.cpp', '.cs', '.go', '.rs', '.sql', '.yaml', '.yml'
+])
 
 const quickQuestions = [
   '如何求解二次函数的最值？',
@@ -62,54 +77,112 @@ const displayMessages = computed(() => {
 })
 
 onMounted(async () => {
-  loadHistory()
+  await loadConversations()
   await checkKey()
 })
 
-async function checkKey() {
-  hasKey.value = await hasApiKey()
-  if (import.meta.env.VITE_DEEPSEEK_API_KEY) {
-    keySource.value = 'env'
-  } else if (hasKey.value) {
-    keySource.value = 'vault'
-  } else {
-    keySource.value = 'none'
+async function loadConversations() {
+  if (!auth.user?.id) return
+  loadingHistory.value = true
+  try {
+    const convs = await api.getConversations(auth.user.id)
+    persistedConversationIds.clear()
+    conversations.value = convs.map(c => ({
+      id: c.id,
+      title: c.title,
+      messages: (c.messages || []).map((m: any) => ({
+        id: m.id || String(Math.random()),
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.created_at || c.created_at).getTime(),
+      })),
+      subject: c.subject,
+      createdAt: new Date(c.created_at).getTime(),
+      updatedAt: new Date(c.updated_at).getTime(),
+    }))
+    conversations.value.forEach(c => persistedConversationIds.add(c.id))
+    if (conversations.value.length > 0) {
+      currentConvId.value = conversations.value[0].id
+    }
+  } catch (error) {
+    console.warn('Failed to load conversations:', error)
+  }
+  loadingHistory.value = false
+}
+
+async function saveConversation(conv: LocalConversation) {
+  if (!auth.user?.id) return
+  try {
+    const messages = conv.messages.map(m => ({
+      role: m.role,
+      content: m.content,
+      created_at: new Date(m.timestamp).toISOString(),
+    }))
+    if (persistedConversationIds.has(conv.id)) {
+      await api.updateConversation(conv.id, {
+        messages: messages as any,
+        title: conv.title,
+        updated_at: new Date().toISOString(),
+      } as any)
+    } else {
+      await api.createConversation({
+        id: conv.id,
+        user_id: auth.user.id,
+        title: conv.title,
+        messages: messages as any,
+        subject: conv.subject,
+        status: 'active',
+      } as any)
+      persistedConversationIds.add(conv.id)
+    }
+  } catch (error) {
+    console.warn('Failed to save conversation:', error)
   }
 }
 
-function loadHistory() {
+async function deleteConversationFromApi(id: string) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) conversations.value = JSON.parse(raw)
-  } catch { /* ignore */ }
+    await api.deleteConversation(id)
+    persistedConversationIds.delete(id)
+  } catch (error) {
+    console.warn('Failed to delete conversation:', error)
+  }
 }
 
-function saveHistory() {
-  try {
-    const toSave = conversations.value.slice(0, MAX_HISTORY)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
-  } catch { /* ignore */ }
-}
+const mockMode = ref(false)
 
 function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  return crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
+
+async function checkKey() {
+  const source = await getApiKeySource()
+  keySource.value = source
+  mockMode.value = source === 'none'
+  hasKey.value = source !== 'none'
 }
 
 async function saveApiKey() {
   if (!apiKeyInput.value.trim()) return
   const key = apiKeyInput.value.trim()
+  let savedToVault = false
 
   if (saveToVault.value && (auth.isAdmin || auth.isTeacher)) {
     try {
-      await api.saveVaultSecret('deepseek_api_key', key)
-    } catch (e: any) {
-      // fallback to local only
+      await api.saveVaultSecret('teach-ai-key', key)
+      savedToVault = true
+    } catch (error) {
+      console.warn('Failed to save API key to Vault, falling back to session key:', error)
     }
   }
 
   clearKeyCache()
-  hasKey.value = true
-  keySource.value = saveToVault.value ? 'vault' : 'none'
+  if (savedToVault) {
+    clearRuntimeApiKey()
+  } else {
+    setRuntimeApiKey(key)
+  }
+  await checkKey()
   showApiKeyInput.value = false
   apiKeyInput.value = ''
 }
@@ -136,7 +209,7 @@ function getSystemPrompt(): string {
 async function sendMessage() {
   if (!input.value.trim() && attachedFiles.value.length === 0) return
   if (loading.value) return
-  if (!hasKey.value) {
+  if (!hasKey.value && !mockMode.value) {
     showApiKeyInput.value = true
     return
   }
@@ -160,13 +233,13 @@ async function sendMessage() {
     }
     conversations.value.unshift(newConv)
     currentConvId.value = newConv.id
-    saveHistory()
+    void saveConversation(newConv)
   } else {
     const conv = conversations.value.find(c => c.id === currentConvId.value)
     if (conv) {
       conv.messages.push(userMsg)
       conv.updatedAt = Date.now()
-      saveHistory()
+      void saveConversation(conv)
     }
   }
 
@@ -202,7 +275,7 @@ async function sendMessage() {
       if (conv) {
         conv.messages.push(aiMsg)
         conv.updatedAt = Date.now()
-        saveHistory()
+        void saveConversation(conv)
       }
       streamingContent.value = ''
       loading.value = false
@@ -218,7 +291,7 @@ async function sendMessage() {
       const conv = conversations.value.find(c => c.id === currentConvId.value)
       if (conv) {
         conv.messages.push(errorMsg)
-        saveHistory()
+        void saveConversation(conv)
       }
       streamingContent.value = ''
       loading.value = false
@@ -251,7 +324,7 @@ function stopGeneration() {
         content: streamingContent.value,
         timestamp: Date.now()
       })
-      saveHistory()
+      void saveConversation(conv)
     }
     streamingContent.value = ''
   }
@@ -275,7 +348,7 @@ function deleteConversation(id: string) {
   if (loading.value) return
   conversations.value = conversations.value.filter(c => c.id !== id)
   if (currentConvId.value === id) currentConvId.value = null
-  saveHistory()
+  deleteConversationFromApi(id)
 }
 
 function quickAsk(q: string) {
@@ -285,6 +358,16 @@ function quickAsk(q: string) {
 
 function handleFileUpload() {
   fileInputRef.value?.click()
+}
+
+function getFileExtension(fileName: string): string {
+  const index = fileName.lastIndexOf('.')
+  return index >= 0 ? fileName.slice(index).toLowerCase() : ''
+}
+
+function isSupportedTextFile(file: File): boolean {
+  const extension = getFileExtension(file.name)
+  return file.type.startsWith('text/') || TEXT_FILE_EXTENSIONS.has(extension)
 }
 
 async function onFileSelected(event: Event) {
@@ -301,10 +384,10 @@ async function onFileSelected(event: Event) {
         content: content,
         type: file.type
       })
-    } catch {
+    } catch (error: any) {
       attachedFiles.value.push({
         name: file.name,
-        content: `[无法读取文件内容，文件类型: ${file.type || '未知'}]`,
+        content: `[无法读取文件内容：${error?.message || '未知错误'}，文件类型: ${file.type || '未知'}]`,
         type: file.type || 'unknown'
       })
     }
@@ -314,17 +397,20 @@ async function onFileSelected(event: Event) {
 
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    } else {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsText(file, 'UTF-8')
+    if (file.size > MAX_UPLOAD_SIZE) {
+      reject(new Error(`文件超过 ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB 限制，请拆分后上传。`))
+      return
     }
+
+    if (!isSupportedTextFile(file)) {
+      reject(new Error('当前仅支持文本、Markdown、代码、JSON、CSV、XML、SQL、YAML 等文本类文件。'))
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsText(file, 'UTF-8')
   })
 }
 
@@ -352,8 +438,9 @@ function formatTime(ts: number): string {
           + 新对话
         </button>
         <button @click="showApiKeyInput = true" class="w-full py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs hover:bg-gray-50 transition-colors">
-          {{ keySource === 'vault' ? '🔑🛡️ Vault已配置' : keySource === 'env' ? '🔑 环境变量已配置' : '⚙️ 配置API Key' }}
+          {{ mockMode ? '⚙️ 配置API Key' : keySource === 'vault' ? '🔑🛡️ Vault已配置' : keySource === 'env' ? '🔑 环境变量已配置' : keySource === 'runtime' ? '🔑 本次会话已配置' : '⚙️ 配置API Key' }}
         </button>
+        <div v-if="mockMode" class="w-full py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-600 rounded-lg text-xs text-center">🎮 体验模式 · 无需 Key</div>
       </div>
       <div class="flex-1 overflow-y-auto">
         <div v-for="conv in conversations" :key="conv.id"
@@ -380,9 +467,12 @@ function formatTime(ts: number): string {
       <!-- Header -->
       <div class="p-4 border-b border-gray-100 flex items-center justify-between">
         <div class="text-sm font-medium text-indigo-600">🤖 AI智能答疑 · DeepSeek</div>
-        <div v-if="keySource === 'vault'" class="text-xs text-green-500">🛡️ Key 来自 Supabase Vault</div>
-        <div v-else-if="keySource === 'env'" class="text-xs text-blue-500">🔑 Key 来自环境变量</div>
-        <div v-else class="text-xs text-amber-500">⚠️ 未配置API Key</div>
+        <div class="flex items-center gap-2">
+          <div v-if="mockMode" class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 font-medium">🎮 体验模式</div>
+          <div v-else-if="keySource === 'vault'" class="text-xs text-green-500">🛡️ Vault</div>
+          <div v-else-if="keySource === 'env'" class="text-xs text-blue-500">🔑 环境变量</div>
+          <div v-else-if="keySource === 'runtime'" class="text-xs text-amber-500">🔑 本次会话</div>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -434,7 +524,7 @@ function formatTime(ts: number): string {
           </label>
         </div>
         <p class="text-xs text-amber-500 mt-1">
-          不勾选则仅保存到浏览器本地。也可通过 .env 环境变量 VITE_DEEPSEEK_API_KEY 配置。
+          不勾选则仅保存到本次浏览器会话。也可通过 .env 环境变量 VITE_DEEPSEEK_API_KEY 配置。
         </p>
       </div>
 
@@ -453,7 +543,7 @@ function formatTime(ts: number): string {
           <button @click="handleFileUpload" class="px-3 py-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="上传文件">
             📎
           </button>
-          <input ref="fileInputRef" type="file" multiple class="hidden" @change="onFileSelected" accept=".txt,.md,.pdf,.doc,.docx,.jpg,.png,.gif,.py,.js,.ts,.html,.css,.json,.csv,.xml" />
+          <input ref="fileInputRef" type="file" multiple class="hidden" @change="onFileSelected" accept=".txt,.md,.markdown,.py,.js,.ts,.vue,.html,.css,.json,.csv,.xml,.sql,.yaml,.yml" />
           <input
             v-model="input"
             @keydown.enter="sendMessage"

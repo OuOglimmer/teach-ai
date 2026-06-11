@@ -312,8 +312,8 @@ export const api = {
   },
 
   // ========== Vault Secrets ==========
-  async getVaultSecret(name: string): Promise<string | null> {
-    const { data, error } = await supabase.rpc('vault_get_secret', { p_name: name })
+  async getDeepseekApiKey(): Promise<string | null> {
+    const { data, error } = await supabase.rpc('get_deepseek_api_key', {})
     if (error || !data) return null
     return data
   },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 import type { AiConversation } from '@/types'
@@ -15,7 +15,40 @@ onMounted(async () => {
   }
 })
 
-const filteredConversations = ref(conversations)
+const filteredConversations = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  const now = new Date()
+
+  return conversations.value.filter(conv => {
+    const haystack = [
+      conv.title,
+      conv.subject,
+      ...(conv.messages || []).map(m => m.content)
+    ].join(' ').toLowerCase()
+
+    const matchesQuery = !query || haystack.includes(query)
+    if (!matchesQuery) return false
+
+    if (dateFilter.value === 'all') return true
+
+    const created = new Date(conv.created_at)
+    if (dateFilter.value === 'today') {
+      return created.toDateString() === now.toDateString()
+    }
+
+    if (dateFilter.value === 'week') {
+      const weekAgo = new Date(now)
+      weekAgo.setDate(now.getDate() - 7)
+      return created >= weekAgo
+    }
+
+    if (dateFilter.value === 'month') {
+      return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()
+    }
+
+    return true
+  })
+})
 
 async function deleteConv(id: string) {
   if (!confirm('确认删除此对话记录？')) return
@@ -63,8 +96,8 @@ async function deleteConv(id: string) {
             <button @click="deleteConv(conv.id)" class="px-3 py-1.5 text-gray-400 text-xs rounded-lg hover:bg-red-50 hover:text-red-500 transition-colors">删除</button>
           </div>
         </div>
-        <div v-if="conversations.length === 0" class="p-12 text-center text-gray-400">
-          暂无对话记录
+        <div v-if="filteredConversations.length === 0" class="p-12 text-center text-gray-400">
+          {{ conversations.length === 0 ? '暂无对话记录' : '没有匹配的对话记录' }}
         </div>
       </div>
     </div>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
 
+const isReal = import.meta.env.VITE_USE_REAL_SUPABASE === 'true'
 const isLogin = ref(true)
 const email = ref('')
 const password = ref('')
@@ -14,6 +15,12 @@ const nickname = ref('')
 const role = ref('student')
 const error = ref('')
 const loading = ref(false)
+
+const demoAccounts = [
+  { label: '管理员', email: 'admin@test.com', password: '123456', role: 'admin' },
+  { label: '教师', email: 'teacher@test.com', password: '123456', role: 'teacher' },
+  { label: '学生', email: 'student@test.com', password: '123456', role: 'student' },
+]
 
 async function handleSubmit() {
   error.value = ''
@@ -43,6 +50,12 @@ async function handleSubmit() {
   } finally {
     loading.value = false
   }
+}
+
+function demoLogin(acc: typeof demoAccounts[0]) {
+  email.value = acc.email
+  password.value = acc.password
+  handleSubmit()
 }
 </script>
 
@@ -151,9 +164,18 @@ async function handleSubmit() {
           </button>
         </form>
 
-        <p class="text-center text-xs text-gray-400 mt-6">
-          演示账号: admin@test.com / 123456
-        </p>
+        <div v-if="!isReal" class="mt-6 pt-4 border-t border-gray-100">
+          <p class="text-xs text-gray-400 text-center mb-2">演示账号一键登录</p>
+          <div class="flex gap-2">
+            <button v-for="acc in demoAccounts" :key="acc.label"
+              @click="demoLogin(acc)"
+              class="flex-1 py-2 rounded-lg text-xs font-medium transition-colors"
+              :class="acc.role === 'admin' ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : acc.role === 'teacher' ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'"
+            >
+              {{ acc.label }}登录
+            </button>
+          </div>
+        </div>
       </template>
     </div>
   </div>

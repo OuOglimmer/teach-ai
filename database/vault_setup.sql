@@ -7,20 +7,20 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS supabase_vault;
 
--- 2. 获取密钥的 RPC
-CREATE OR REPLACE FUNCTION vault_get_secret(p_name text)
-RETURNS text
+-- 2. 创建安全函数：获取 DeepSeek API Key（仅此一个用途）
+CREATE OR REPLACE FUNCTION public.get_deepseek_api_key()
+RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_value text;
+    api_key TEXT;
 BEGIN
-  SELECT decrypted_secret::text INTO v_value
-  FROM vault.decrypted_secrets
-  WHERE name = p_name
-  LIMIT 1;
-  RETURN v_value;
+    SELECT decrypted_secret::TEXT INTO api_key
+    FROM vault.decrypted_secrets
+    WHERE name = 'teach-ai-key'
+    LIMIT 1;
+    RETURN api_key;
 END;
 $$;
 
@@ -31,21 +31,19 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-  -- 删除已有同名密钥
   DELETE FROM vault.secrets WHERE name = p_name;
-  -- 插入新密钥
   INSERT INTO vault.secrets (name, secret)
   VALUES (p_name, p_value);
 END;
 $$;
 
 -- 4. 授予权限
-GRANT EXECUTE ON FUNCTION vault_get_secret TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_deepseek_api_key TO authenticated;
 GRANT EXECUTE ON FUNCTION vault_upsert_secret TO authenticated, anon;
 
 -- ========================================
--- 可选：直接通过 Dashboard 手动添加密钥
+-- 手动添加密钥到 Vault：
 -- Supabase Dashboard > Project > Vault > Add Secret
--- Name: deepseek_api_key
+-- Name: teach-ai-key
 -- Value: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 -- ========================================
